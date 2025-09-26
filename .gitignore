@@ -1,0 +1,57 @@
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.*
+
+# OS
+.DS_Store
+
+# Build
+/dist/
+/build/
+
+# Docker
+*.pid
+*.sock
+docker-compose.override.yml
+
+# VSCode
+.vscode/
+
+# Coverage
+coverage/
+
+# Misc
+*.sqlite
+*.db
+migrations/*.sqlite
+
+# SBOM, reports
+sbom.json
+*.sbom
+*.report
+
+# Kubernetes
+*.yaml
+!awsdevopsassignment.yml
+
+# Terraform
+.terraform/
+terraform.tfstate
+terraform.tfstate.backup
+*.tfvars
+crash.log
+*.tfplan
+*.terraform.lock.hcl
+
+# Ignore secrets
+secrets.yaml
+secret.yaml

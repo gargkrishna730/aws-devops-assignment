@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS trades (
+  id VARCHAR(36) PRIMARY KEY,
+  status VARCHAR(32),
+  created_at DATETIME
+);

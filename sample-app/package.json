@@ -1,0 +1,14 @@
+{
+  "name": "sample-app-devops-assignment",
+  "version": "1.0.0",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "redis": "^5.8.2",
+    "sqlite3": "^5.1.7",
+    "uuid": "^9.0.1"
+  }
+}

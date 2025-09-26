@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secrets
+type: Opaque
+data:
+  MYSQL_HOST: dGVycmFmb3JtLTIwMjUwOTI2MTcxNzMyNDI2NzAwMDAwMDAxLmNzM2tpcWE2b2xjOS51cy1lYXN0LTEucmRzLmFtYXpvbmF3cy5jb20=
+  MYSQL_USER: YWRtaW4=
+  MYSQL_PASSWORD: MTIzNDU2Nzg=
+  MYSQL_DATABASE: YXdzYXNzaWdubWVudA==
+  MYSQL_PORT: MzMwNg==
+  REDIS_URL: cmVkaXM6Ly9hd3MtYXNzaWdubWVudC5haTZub3guMDAwMS51c2UxLmNhY2hlLmFtYXpvbmF3cy5jb206NjM3OQ==
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sample-app
+  template:
+    metadata:
+      labels:
+        app: sample-app
+    spec:
+      containers:
+      - name: sample-app
+        image: gargkrishna730/aws-devops-assignment:v5
+        ports:
+        - containerPort: 3000
+        env:
+        - name: MYSQL_HOST
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: MYSQL_HOST
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: MYSQL_USER
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: MYSQL_PASSWORD
+        - name: MYSQL_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: MYSQL_DATABASE
+        - name: MYSQL_PORT
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: MYSQL_PORT
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: REDIS_URL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-app-service
+spec:
+  selector:
+    app: sample-app
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 3000
+  type: ClusterIP
