@@ -1,10 +1,5 @@
 pipeline {
-    agent { 
-        docker { 
-            image 'node:18-alpine'
-            args '-v /var/run/docker.sock:/var/run/docker.sock -v /usr/bin/docker:/usr/bin/docker'
-        } 
-    }
+    agent any
     
     environment {
         HOME = '.'
@@ -26,6 +21,22 @@ pipeline {
             }
         }
 
+        stage('Setup Node.js') {
+            steps {
+                script {
+                    // Install Node.js if not available
+                    sh '''
+                        if ! command -v node &> /dev/null; then
+                            curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+                            sudo apt-get install -y nodejs
+                        fi
+                        node --version
+                        npm --version
+                    '''
+                }
+            }
+        }
+
         stage('Build & Unit Test') {
             steps {
                 sh '''
@@ -41,15 +52,21 @@ pipeline {
 
         stage('Docker Build & Push') {
             when {
-                not { params.ROLLBACK }
+                not { 
+                    expression { 
+                        return params.ROLLBACK == true 
+                    }
+                }
             }
             steps {
                 script {
-                    // Install Docker if not available
+                    // Ensure Docker is available
                     sh '''
                         if ! command -v docker &> /dev/null; then
-                            apk add --no-cache docker
+                            echo "Docker not found. Please install Docker on the Jenkins agent."
+                            exit 1
                         fi
+                        docker --version
                     '''
                 }
                 
@@ -70,18 +87,23 @@ pipeline {
 
         stage('Update Deployment Image') {
             when {
-                not { params.ROLLBACK }
+                not { 
+                    expression { 
+                        return params.ROLLBACK == true 
+                    }
+                }
             }
             steps {
                 script {
                     // Install kubectl if not available
                     sh '''
                         if ! command -v kubectl &> /dev/null; then
-                            apk add --no-cache curl
+                            echo "Installing kubectl..."
                             curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
                             chmod +x kubectl
-                            mv kubectl /usr/local/bin/
+                            sudo mv kubectl /usr/local/bin/
                         fi
+                        kubectl version --client
                     '''
                 }
                 
@@ -99,18 +121,21 @@ pipeline {
 
         stage('Rollback') {
             when {
-                expression { return params.ROLLBACK }
+                expression { 
+                    return params.ROLLBACK == true 
+                }
             }
             steps {
                 script {
                     // Install kubectl if not available
                     sh '''
                         if ! command -v kubectl &> /dev/null; then
-                            apk add --no-cache curl
+                            echo "Installing kubectl..."
                             curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
                             chmod +x kubectl
-                            mv kubectl /usr/local/bin/
+                            sudo mv kubectl /usr/local/bin/
                         fi
+                        kubectl version --client
                     '''
                 }
                 
@@ -137,6 +162,10 @@ pipeline {
         }
         failure {
             echo 'Pipeline failed. Check logs for details.'
+        }
+        cleanup {
+            // Additional cleanup if needed
+            sh 'docker logout || true'
         }
     }
 }
