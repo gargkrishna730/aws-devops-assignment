@@ -1,6 +1,10 @@
 pipeline {
     agent any
     
+    tools {
+        nodejs 'NodeJS' // This requires NodeJS plugin and configured tool in Jenkins
+    }
+    
     environment {
         HOME = '.'
         DOCKER_IMAGE = "gargkrishna730/aws-devops-assignment:${env.BUILD_NUMBER}"
@@ -21,17 +25,36 @@ pipeline {
             }
         }
 
-        stage('Setup Node.js') {
+        stage('Setup Tools') {
             steps {
                 script {
-                    // Install Node.js if not available
+                    // Check and install Node.js without sudo
                     sh '''
-                        if ! command -v node &> /dev/null; then
-                            curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-                            sudo apt-get install -y nodejs
+                        echo "Checking Node.js installation..."
+                        if command -v node &> /dev/null; then
+                            echo "Node.js found: $(node --version)"
+                            echo "NPM found: $(npm --version)"
+                        else
+                            echo "Node.js not found. Installing via NodeSource..."
+                            # Download and install Node.js without sudo
+                            curl -fsSL https://nodejs.org/dist/v18.19.0/node-v18.19.0-linux-x64.tar.xz -o node.tar.xz
+                            tar -xf node.tar.xz
+                            export PATH=$PWD/node-v18.19.0-linux-x64/bin:$PATH
+                            echo "Node.js installed: $(node --version)"
                         fi
-                        node --version
-                        npm --version
+                    '''
+                    
+                    // Install kubectl without sudo
+                    sh '''
+                        echo "Installing kubectl..."
+                        if ! command -v kubectl &> /dev/null; then
+                            curl -LO "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
+                            chmod +x kubectl
+                            export PATH=$PWD:$PATH
+                            echo "kubectl installed: $(./kubectl version --client --short 2>/dev/null || echo 'kubectl ready')"
+                        else
+                            echo "kubectl already available: $(kubectl version --client --short 2>/dev/null || echo 'kubectl ready')"
+                        fi
                     '''
                 }
             }
@@ -39,14 +62,29 @@ pipeline {
 
         stage('Build & Unit Test') {
             steps {
-                sh '''
-                    npm ci --only=production
-                    if [ -f package.json ] && grep -q '"test"' package.json; then
-                        npm test
-                    else
-                        echo "No tests found, skipping test stage"
-                    fi
-                '''
+                script {
+                    // Set PATH to include local Node.js installation
+                    sh '''
+                        export PATH=$PWD/node-v18.19.0-linux-x64/bin:$PATH
+                        
+                        echo "Node version: $(node --version)"
+                        echo "NPM version: $(npm --version)"
+                        
+                        if [ -f package.json ]; then
+                            echo "Installing dependencies..."
+                            npm ci --only=production || npm install --only=production
+                            
+                            if grep -q '"test"' package.json; then
+                                echo "Running tests..."
+                                npm test
+                            else
+                                echo "No tests found in package.json, skipping test stage"
+                            fi
+                        else
+                            echo "No package.json found, skipping npm steps"
+                        fi
+                    '''
+                }
             }
         }
 
@@ -60,27 +98,27 @@ pipeline {
             }
             steps {
                 script {
-                    // Ensure Docker is available
-                    sh '''
-                        if ! command -v docker &> /dev/null; then
-                            echo "Docker not found. Please install Docker on the Jenkins agent."
-                            exit 1
-                        fi
-                        docker --version
-                    '''
-                }
-                
-                withCredentials([usernamePassword(credentialsId: env.DOCKERHUB_CREDENTIALS, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    sh '''
-                        echo "Building Docker image: $DOCKER_IMAGE"
-                        docker build -t $DOCKER_IMAGE .
-                        echo "Logging in to Docker Hub"
-                        echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-                        echo "Pushing Docker image"
-                        docker push $DOCKER_IMAGE
-                        echo "Cleaning up local image"
-                        docker rmi $DOCKER_IMAGE || true
-                    '''
+                    // Use Docker if available, otherwise skip
+                    def dockerAvailable = sh(script: 'command -v docker', returnStatus: true) == 0
+                    
+                    if (dockerAvailable) {
+                        withCredentials([usernamePassword(credentialsId: env.DOCKERHUB_CREDENTIALS, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                            sh '''
+                                echo "Building Docker image: $DOCKER_IMAGE"
+                                docker build -t $DOCKER_IMAGE .
+                                echo "Logging in to Docker Hub"
+                                echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                                echo "Pushing Docker image"
+                                docker push $DOCKER_IMAGE
+                                echo "Cleaning up local image"
+                                docker rmi $DOCKER_IMAGE || true
+                            '''
+                        }
+                    } else {
+                        echo "Docker not available in this environment. Skipping Docker build."
+                        echo "Please ensure Docker is installed and accessible to Jenkins."
+                        error("Docker not available")
+                    }
                 }
             }
         }
@@ -94,26 +132,21 @@ pipeline {
                 }
             }
             steps {
-                script {
-                    // Install kubectl if not available
-                    sh '''
-                        if ! command -v kubectl &> /dev/null; then
-                            echo "Installing kubectl..."
-                            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-                            chmod +x kubectl
-                            sudo mv kubectl /usr/local/bin/
-                        fi
-                        kubectl version --client
-                    '''
-                }
-                
                 withCredentials([file(credentialsId: env.KUBECONFIG_CREDENTIALS, variable: 'KUBECONFIG')]) {
                     sh '''
+                        # Use local kubectl if installed in previous stage
+                        KUBECTL_CMD="kubectl"
+                        if [ -f ./kubectl ]; then
+                            KUBECTL_CMD="./kubectl"
+                            export PATH=$PWD:$PATH
+                        fi
+                        
+                        echo "Using kubectl: $KUBECTL_CMD"
                         echo "Updating deployment image to: $DOCKER_IMAGE"
-                        kubectl --kubeconfig=$KUBECONFIG set image deployment/$KUBE_DEPLOYMENT sample-app=$DOCKER_IMAGE -n $KUBE_NAMESPACE
+                        $KUBECTL_CMD --kubeconfig=$KUBECONFIG set image deployment/$KUBE_DEPLOYMENT sample-app=$DOCKER_IMAGE -n $KUBE_NAMESPACE
                         
                         echo "Waiting for rollout to complete..."
-                        kubectl --kubeconfig=$KUBECONFIG rollout status deployment/$KUBE_DEPLOYMENT -n $KUBE_NAMESPACE --timeout=300s
+                        $KUBECTL_CMD --kubeconfig=$KUBECONFIG rollout status deployment/$KUBE_DEPLOYMENT -n $KUBE_NAMESPACE --timeout=300s
                     '''
                 }
             }
@@ -126,26 +159,21 @@ pipeline {
                 }
             }
             steps {
-                script {
-                    // Install kubectl if not available
-                    sh '''
-                        if ! command -v kubectl &> /dev/null; then
-                            echo "Installing kubectl..."
-                            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-                            chmod +x kubectl
-                            sudo mv kubectl /usr/local/bin/
-                        fi
-                        kubectl version --client
-                    '''
-                }
-                
                 withCredentials([file(credentialsId: env.KUBECONFIG_CREDENTIALS, variable: 'KUBECONFIG')]) {
                     sh '''
+                        # Use local kubectl if installed in previous stage
+                        KUBECTL_CMD="kubectl"
+                        if [ -f ./kubectl ]; then
+                            KUBECTL_CMD="./kubectl"
+                            export PATH=$PWD:$PATH
+                        fi
+                        
+                        echo "Using kubectl: $KUBECTL_CMD"
                         echo "Rolling back deployment: $KUBE_DEPLOYMENT"
-                        kubectl --kubeconfig=$KUBECONFIG rollout undo deployment/$KUBE_DEPLOYMENT -n $KUBE_NAMESPACE
+                        $KUBECTL_CMD --kubeconfig=$KUBECONFIG rollout undo deployment/$KUBE_DEPLOYMENT -n $KUBE_NAMESPACE
                         
                         echo "Waiting for rollback to complete..."
-                        kubectl --kubeconfig=$KUBECONFIG rollout status deployment/$KUBE_DEPLOYMENT -n $KUBE_NAMESPACE --timeout=300s
+                        $KUBECTL_CMD --kubeconfig=$KUBECONFIG rollout status deployment/$KUBE_DEPLOYMENT -n $KUBE_NAMESPACE --timeout=300s
                     '''
                 }
             }
@@ -154,18 +182,22 @@ pipeline {
 
     post {
         always {
-            // Clean up Docker images to save space
-            sh 'docker system prune -f || true'
+            // Only clean Docker if it's available
+            script {
+                def dockerAvailable = sh(script: 'command -v docker', returnStatus: true) == 0
+                if (dockerAvailable) {
+                    sh 'docker system prune -f || true'
+                    sh 'docker logout || true'
+                } else {
+                    echo 'Docker not available, skipping cleanup'
+                }
+            }
         }
         success {
             echo 'Pipeline completed successfully!'
         }
         failure {
             echo 'Pipeline failed. Check logs for details.'
-        }
-        cleanup {
-            // Additional cleanup if needed
-            sh 'docker logout || true'
         }
     }
 }
