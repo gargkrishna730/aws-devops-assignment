@@ -1,3 +1,8 @@
+# Deployed Application
+
+Access the deployed application here:
+http://k8s-awsdevop-awsdevop-c513c0f1d2-2011707408.us-east-1.elb.amazonaws.com
+
 # Screenshots & Demo
 
 ## AWS CloudWatch Dashboard
