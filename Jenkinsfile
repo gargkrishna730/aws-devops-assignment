@@ -1,12 +1,13 @@
 pipeline {
-  agent any
+    agent { docker { image 'node:latest' } }
+    environment {
+        HOME = '.'
 
-  environment {
-    DOCKER_IMAGE = "gargkrishna730/aws-devops-assignment:${env.BUILD_NUMBER}"
-    KUBE_DEPLOYMENT = "sample-app"
-    KUBE_NAMESPACE = "awsdevopsassignment"
-    DOCKERHUB_CREDENTIALS = "dockerhub-creds"
-    KUBECONFIG_CREDENTIALS = "kubeconfig-creds"
+        DOCKER_IMAGE = "gargkrishna730/aws-devops-assignment:${env.BUILD_NUMBER}"
+        KUBE_DEPLOYMENT = "sample-app"
+        KUBE_NAMESPACE = "awsdevopsassignment"
+        DOCKERHUB_CREDENTIALS = "dockerhub-creds"
+        KUBECONFIG_CREDENTIALS = "kubeconfig-creds"
   }
 
   stages {
